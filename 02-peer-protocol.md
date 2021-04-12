@@ -555,6 +555,14 @@ the channel.
    * [`channel_id`:`channel_id`]
    * [`u64`:`fee_satoshis`]
    * [`signature`:`signature`]
+   * [`closing_signed_tlvs`:`tlvs`]
+
+1. `tlv_stream`: `closing_signed_tlvs`
+2. types:
+    1. type: 1 (`fee_range`)
+    2. data:
+        * [`u64`:`min_fee_satoshis`]
+        * [`u64`:`max_fee_satoshis`]
 
 #### Requirements
 
@@ -563,12 +571,15 @@ The funding node:
     - SHOULD send a `closing_signed` message.
 
 The sending node:
-  - MUST set `fee_satoshis` less than or equal to the
- base fee of the final commitment transaction, as calculated in [BOLT #3](03-transactions.md#fee-calculation).
-  - SHOULD set the initial `fee_satoshis` according to its
- estimate of cost of inclusion in a block.
-  - MUST set `signature` to the Bitcoin signature of the close
- transaction, as specified in [BOLT #3](03-transactions.md#closing-transaction).
+  - If the channel does not use `option_anchor_outputs`:
+    - MUST set `fee_satoshis` less than or equal to the base fee of the final
+    commitment transaction, as calculated in [BOLT #3](03-transactions.md#fee-calculation).
+  - SHOULD set the initial `fee_satoshis` according to its estimate of cost of
+  inclusion in a block.
+  - SHOULD set `fee_range` according to the minimum and maximum fees it is
+  prepared to pay for a close transaction.
+  - MUST set `signature` to the Bitcoin signature of the close transaction,
+  as specified in [BOLT #3](03-transactions.md#closing-transaction).
 
 The receiving node:
   - if the `signature` is not valid for either variant of closing transaction
@@ -577,25 +588,32 @@ The receiving node:
   - if `fee_satoshis` is equal to its previously sent `fee_satoshis`:
     - SHOULD sign and broadcast the final closing transaction.
     - MAY close the connection.
-  - otherwise, if `fee_satoshis` is greater than
-the base fee of the final commitment transaction as calculated in
-[BOLT #3](03-transactions.md#fee-calculation):
+  - if `fee_satoshis` matches its previously sent `fee_range`:
+    - SHOULD use `fee_satoshis` to sign and broadcast the final closing transaction
+    - MAY close the connection.
+  - otherwise, if `fee_satoshis` is greater than the base fee of the final
+  commitment transaction as calculated in [BOLT #3](03-transactions.md#fee-calculation)
+  and the channel does not use `option_anchor_outputs`:
     - MUST fail the connection.
-  - if `fee_satoshis` is not strictly
-between its last-sent `fee_satoshis` and its previously-received
-`fee_satoshis`, UNLESS it has since reconnected:
+  - if the message contains a `fee_range`:
+    - if it disagrees with that `fee_range`:
+      - SHOULD fail the connection
+    - otherwise:
+      - MUST propose a `fee_satoshis` in that range
+  - otherwise, if `fee_satoshis` is not strictly between its last-sent `fee_satoshis`
+  and its previously-received `fee_satoshis`, UNLESS it has since reconnected:
     - SHOULD fail the connection.
-  - if the receiver agrees with the fee:
+  - otherwise, if the receiver agrees with the fee:
     - SHOULD reply with a `closing_signed` with the same `fee_satoshis` value.
   - otherwise:
     - MUST propose a value "strictly between" the received `fee_satoshis`
-  and its previously-sent `fee_satoshis`.
+    and its previously-sent `fee_satoshis`.
 
 #### Rationale
 
-The "strictly between" requirement ensures that forward
-progress is made, even if only by a single satoshi at a time. To avoid
-keeping state and to handle the corner case, where fees have shifted
+When `fee_range` is not provided, the "strictly between" requirement ensures
+that forward progress is made, even if only by a single satoshi at a time.
+To avoid keeping state and to handle the corner case, where fees have shifted
 between disconnection and reconnection, negotiation restarts on reconnection.
 
 Note there is limited risk if the closing transaction is
