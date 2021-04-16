@@ -386,3 +386,13 @@ csv
 CHECKSIGVERIFY
 IFDUP
 sats
+onionmsg
+Schnorr
+unblinded
+Merkle
+whitespace
+rata
+programatically
+parsable
+TLVs
+AUD
