@@ -1212,19 +1212,20 @@ The sender:
 - MUST NOT send `splice` before sending and receiving `funding_locked`.
 - MUST NOT send another splice message while a splice is being negotiated.
 - MUST NOT send a splice message after sending uncommitted changes.
-- If a splice is in progress:
-  - MUST NOT send a splice message with `funding_feerate_perkw` which is less than 1.25 the previous `funding_feerate_perkw` (rounded down).
+- If one or more splices is in progress:
+  - MUST NOT initiate a splice with `funding_feerate_perkw` which is less than 1.25 the previous `funding_feerate_perkw` (rounded down).
+  - MAY reply to a proposed splice with a lower `funding_feerate_perkw`
 - MUST NOT send other channel updates until splice negotiation has completed.
 
 The receiver:
-- SHOULD fail the splice if there is an ongoing splice, and the `funding_feerate_perkw` is not at least 1.25 the previous `funding_feerate_perkw` (rounded down).
+- SHOULD fail the splice if:
+  - there one or more splices is in progress, AND
+  - it has not initiated a `splice` itself, AND
+  - the `funding_feerate_perkw` is not at least 1.25 the previous `funding_feerate_perkw` (rounded down).
 - MUST respond with a `splice` message of its own if it has not already.
-- MUST NOT reply with `splice` until all commitment updates are resolved by bother peers.
-- MAY set `funding_feerate_perkw` below the received value.
+- MAY set `funding_feerate_perkw` in the reply below the received value.
 - MUST use the higher of the two `funding_feerate_perkw` as the feerate for
   the splice.
-- MUST NOT send other channel updates until splice negotiation has completed.
-
 
 #### Rationale
 
@@ -1243,7 +1244,8 @@ reply with `revoke_and_ack` before it can finally reply with `splice`.
 
 The splice negotiation is very similar to the `init_rbf` negotiation:
 both sides alternate sending `tx_add_input` and `tx_add_output` until
-they both send consecutive `tx_complete`.
+they both send consecutive `tx_complete`.  It doesn't begin until both
+commitment transactions are in the same state.
 
 ### Requirements
 
@@ -1255,6 +1257,7 @@ The initiator is defined as the side which offered the higher
 SEC1-encoded node_id.
 
 The initiator:
+- MUST NOT send any transaction construction messages until all commitment updates are resolved by both peers.
 - MUST `tx_add_input` an input which spends the current funding transaction output.
 - MUST `tx_add_output` a zero-value output which pays to the two funding keys using the higher of the two `generation` fields.
 - MUST pay for the common fields.
