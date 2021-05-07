@@ -1452,7 +1452,7 @@ A node receiving `channel_reestablish`:
     - otherwise:
       - MUST consider the received `channel_features` as the current features of the channel.
   - otherwise, if `channel_features` has fewer bits set than the sent `channel_features`:
-    - if the missing bits are not in the sent `upgrades_available`:
+    - if the missing bits are not in the received `upgrades_available`:
       - MUST fail the upgrade
     - otherwise:
       - MUST consider the sent `channel_features` as the current features of the channel.
