@@ -1184,6 +1184,19 @@ messages are), they are independent of requirements here.
    * [`u64`:`next_revocation_number`]
    * [`32*byte`:`your_last_per_commitment_secret`]
    * [`point`:`my_current_per_commitment_point`]
+   * [`channel_reestablish_tlvs`:`tlvs`]
+
+1. `tlv_stream`: `channel_reestablish_tlvs`
+2. types:
+    1. type: 1 (`channel_features`)
+    2. data:
+        * [`...*byte`:`features`]
+    1. type: 3 (`upgrades_available`)
+    2. data:
+        * [`...*byte`:`features`]
+    1. type: 5 (`upgrades_wanted`)
+    2. data:
+        * [`...*byte`:`features`]
 
 `next_commitment_number`: A commitment number is a 48-bit
 incrementing counter for each commitment transaction; counters
@@ -1387,6 +1400,101 @@ however), but the disclosure of previous secret still allows
 fall-behind detection.  An implementation can offer both, however, and
 fall back to the `option_data_loss_protect` behavior if
 `option_static_remotekey` is not negotiated.
+
+### Upgrading Channels
+
+Upgrading channels (e.g. enabling `option_static_remotekey` for a
+channel where it was not negotiated originally) is possible at
+reconnection time if both implementations support it.
+
+Both peers indicate what upgrades are available, and if they both
+offer an upgrade either peer wants, then the upgrade is performed
+following any reestablish retransmissions and corresponding
+commitments which bring the channel into a symmetrical state with no
+updates outstanding.
+
+Once both peers indicate things are quiescent by sending
+`update_upgrade`, the channel features are considered upgraded and a
+normal `commiment_signed` cycle occurs with the new upgrade in place.
+
+In case of disconnection it's possible that one peer will consider the
+channel upgraded and the other not.  For this reason (and potentially
+better diagnostics in future) , they indicate what the current channel
+features are on reconnect: the "more upgraded" one applies immediately
+in this case.
+
+Channel features are currently defined as:
+  - `option_static_remotekey`
+  - `option_anchor_outputs` (requires `option_static_remotekey`)
+
+1. type: 40 (`update_upgrade`)
+2. data:
+   * [`channel_id`:`channel_id`]
+   * [`u16`:`flen`]
+   * [`flen*byte`:`features`]
+
+#### Requirements
+
+A node sending `channel_reestablish`:
+  - if it sets `channel_features`:
+    - MUST set the channel features which currently apply to the channel.
+  - if it sets `upgrades_available`
+    - MUST set `channel_features`
+    - MUST set it to a set of channel features not in `channel_features`.
+  - if it sets `upgrades_wanted`:
+    - MUST set it to a single channel feature NOT in `channel_features`, plus any required features which are also not in `channel_features`.
+    - MUST NOT set any bits not in `upgrades_available`.
+
+A node receiving `channel_reestablish`:
+  - if `channel_features` has more bits set than the sent `channel_features`:
+    - if the additional bits are not in the sent `upgrades_available`:
+      - MUST fail the upgrade
+    - otherwise:
+      - MUST consider the received `channel_features` as the current features of the channel.
+  - otherwise, if `channel_features` has fewer bits set than the sent `channel_features`:
+    - if the missing bits are not in the received `upgrades_available`:
+      - MUST fail the upgrade
+    - otherwise:
+      - MUST consider the sent `channel_features` as the current features of the channel.
+  - if either peer sets a bit in `upgrades_wanted` which is also in both peers' `upgrades_available`:
+    - if `channel_features` modified by `upgrades_wanted` does not have required features:
+	  - MUST fail the upgrade.
+    - MUST send `update_upgrade` with the new `channel_features` after any retransmissions required by `channel_reestablish` and as soon as there are no outstanding updates on either commitment transaction.
+
+A node receiving `update_upgrade`:
+  - if the `features` is not the same as the one it sent (or will send):
+    - MUST fail the upgrade
+
+When a node has both sent and received `update_upgrade`:
+  - MUST consider the channel features to be those sent in `update_upgrade`.
+  - if it has a lower SEC1-encoded node_id than its peer:
+    - MUST send `commitment_signed` (using the new channel features).
+
+#### Rationale
+
+It is generally simpler to have both sides synchronized when upgrades
+occur: by indicating that an upgrade is desired and available, both
+sides know to perform the upgrade as soon as this is the case.  In
+practice most upgrades happen by restarting software which implies a
+reconnect cycle anyway.
+
+The modification of bits is actually quite tricky: a channel which has
+`option_static_remotekey` needs only set `option_anchor_outputs` in
+`upgrades_wanted`, but one with neither would set both.
+
+A node which only offered `option_anchor_outputs` as an upgrade would
+only set that in `upgrades_available`, to avoid indicating that an
+upgrade only to `option_static_remotekey` was available.
+
+There's weasel wording around how `channel_features` combines with
+`upgrades_wanted` ("modified by") since future channel features may
+turn off existing features they conflict with.  This will be defined
+by them.
+
+Finally, the `update_upgrade` features field is technically redundant,
+but a useful sanity check and diagnostic that both sides are now
+entering the same state.  It also allows us to continue to enforce the
+rule that commitment_signed must include an update.
 
 # Authors
 
